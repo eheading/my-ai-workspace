@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  x-tracker:
+    build: .
+    image: x-tracker:latest
+    container_name: x-tracker
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persist the SQLite database across container restarts
+      - ./data:/app/data
+    environment:
+      - DB_PATH=/app/data/x_tracker.db
