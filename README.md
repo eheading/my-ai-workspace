@@ -7,6 +7,7 @@
 - `MEMORY.md`：長期記憶，保存穩定且可重用的資訊
 - `memory/daily/`：每日或臨時記錄
 - `memory/inbox.md`：尚未整理的想法、素材、待辦與草稿
+- `.agents/skills/`：專案級技能清單（每個技能獨立目錄）
 
 ## 使用方式
 - 重要資訊盡量寫入文件，而不是只留在對話裡
@@ -20,3 +21,8 @@
 ## Landing site
 - `site/`：AI-Investment-Analysis 的英文導航官網前端
 - `.github/workflows/deploy-site.yml`：GitHub Pages 自動部署流程
+
+## Skill management
+- 所有專案級技能統一放在 `.agents/skills/`
+- 每個技能都需有自己的資料夾與 `skill.yaml`、`README.md`
+- `.github/workflows/validate-skills.yml` 會自動檢查技能結構一致性

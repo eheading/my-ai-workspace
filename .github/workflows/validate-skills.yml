@@ -1,0 +1,66 @@
+name: Validate skills registry
+
+on:
+  push:
+    branches:
+      - main
+      - 'copilot/**'
+    paths:
+      - '.agents/skills/**'
+      - '.github/workflows/validate-skills.yml'
+      - 'AGENTS.md'
+  pull_request:
+    paths:
+      - '.agents/skills/**'
+      - '.github/workflows/validate-skills.yml'
+      - 'AGENTS.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate skill structure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base=".agents/skills"
+          if [ ! -d "$base" ]; then
+            echo "Missing $base directory"
+            exit 1
+          fi
+
+          found=0
+          while IFS= read -r -d '' dir; do
+            found=1
+            skill_name="$(basename "$dir")"
+            yaml="$dir/skill.yaml"
+            readme="$dir/README.md"
+
+            [ -f "$yaml" ] || { echo "Missing $yaml"; exit 1; }
+            [ -f "$readme" ] || { echo "Missing $readme"; exit 1; }
+
+            grep -qE '^name:[[:space:]]*[a-z0-9-]+$' "$yaml" || { echo "Invalid or missing name in $yaml"; exit 1; }
+            grep -qE '^version:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+$' "$yaml" || { echo "Invalid or missing version in $yaml"; exit 1; }
+            grep -qE '^status:[[:space:]]*[a-z-]+$' "$yaml" || { echo "Invalid or missing status in $yaml"; exit 1; }
+
+            declared_name="$(sed -n 's/^name:[[:space:]]*//p' "$yaml" | head -n1)"
+            [ "$declared_name" = "$skill_name" ] || {
+              echo "Directory '$skill_name' does not match declared name '$declared_name'"
+              exit 1
+            }
+          done < <(find "$base" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
+
+          [ "$found" -eq 1 ] || {
+            echo "No skill directories found under $base"
+            exit 1
+          }
+
+          echo "Skill registry validation passed"

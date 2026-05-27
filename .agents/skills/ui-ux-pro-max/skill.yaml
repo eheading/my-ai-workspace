@@ -1,0 +1,15 @@
+name: ui-ux-pro-max
+version: 0.1.0
+status: research-only
+source: web-search
+summary: >
+  UI/UX-oriented skill placeholder for structured discovery, installation notes,
+  and usage conventions in this repository.
+install:
+  strategy: manual
+  skip_if_present: true
+use:
+  when_to_use:
+    - Landing page visual hierarchy improvements
+    - Accessibility and responsive UX checks
+    - Conversion-oriented UI copy and flow polish
