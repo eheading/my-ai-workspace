@@ -16,3 +16,7 @@
 
 ## 目標
 讓這個倉庫成為一個可長期演化、輕量且實用的個人 AI 協作空間。
+
+## Landing site
+- `site/`：AI-Investment-Analysis 的英文導航官網前端
+- `.github/workflows/deploy-site.yml`：GitHub Pages 自動部署流程
