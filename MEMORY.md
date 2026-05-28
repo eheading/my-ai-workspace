@@ -19,3 +19,10 @@
 - `.github/workflows/daily-investment-briefing.yml`：每天北京時間 21:00（UTC 13:00）自動收集美股開市前投資熱點，以 GitHub Issue（標籤 `daily-briefing`）形式推送日報。
 - 資料來源：Yahoo Finance（指數、熱門股票、板塊 ETF、新聞 RSS）、Reddit r/wallstreetbets、Reddit r/investing。
 - 依賴 `GITHUB_TOKEN`（自動注入），無需額外 secrets。
+
+### 修復後手動驗證（GitHub Actions）
+1. 進入 GitHub 倉庫的 **Actions** 頁面。
+2. 在左側選擇 **Daily US Pre-Market Investment Briefing** workflow。
+3. 點擊 **Run workflow**，選擇分支後手動觸發。
+4. 等待執行完成，確認 job 狀態為 **Success**。
+5. 到 **Issues** 確認有新建的日報 issue，且帶有 `daily-briefing` 標籤、內容可正常顯示，即可判定修復後運作正常。
