@@ -1,6 +1,7 @@
 name: Daily US Pre-Market Investment Briefing
 
 # 每天北京时间 21:00 触发（UTC 13:00）
+# 中国不实行夏令时，UTC+8 全年固定，因此 cron 时间无需调整
 on:
   schedule:
     - cron: '0 13 * * *'
@@ -22,13 +23,17 @@ jobs:
           python3 - << 'EOF'
           import urllib.request
           import urllib.error
+          import xml.etree.ElementTree as ET
           import json
           import datetime
           import os
-          import re
 
           TOKEN = os.environ["GH_TOKEN"]
           REPO  = os.environ["GH_REPO"]
+
+          # ── constants ─────────────────────────────────────────────────────────
+          MAX_POST_TITLE_LENGTH = 100
+          MAX_COMPANY_NAME_LENGTH = 30
 
           # ── helpers ──────────────────────────────────────────────────────────
           def fetch_json(url, timeout=15):
@@ -132,7 +137,7 @@ jobs:
               for t in tickers:
                   sym  = t["symbol"]
                   q    = qmap.get(sym, {})
-                  name = (q.get("shortName") or q.get("longName") or "")[:30]
+                  name = (q.get("shortName") or q.get("longName") or "")[:MAX_COMPANY_NAME_LENGTH]
                   px   = q.get("regularMarketPrice", "—")
                   chg  = q.get("regularMarketChangePercent")
                   if chg is not None:
@@ -175,16 +180,28 @@ jobs:
 
           sections.append(safe_section(sec_sectors, "## 🏭 板块 ETF 表现"))
 
-          # ── Section 4: Yahoo Finance news RSS ────────────────────────────────
+          # ── Section 4: Yahoo Finance news RSS (parsed with ElementTree) ───────
           def sec_yf_news():
-              xml = fetch_text("https://finance.yahoo.com/news/rssindex")
-              items = re.findall(r"<item>(.*?)</item>", xml, re.DOTALL)[:12]
+              xml_text = fetch_text("https://finance.yahoo.com/news/rssindex")
+              # Strip default namespace if present to simplify XPath
+              xml_text = xml_text.replace(' xmlns="', ' xmlns:ignored="')
+              root = ET.fromstring(xml_text)
               lines = []
-              for item in items:
-                  m_title = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", item)
-                  m_link  = re.search(r"<link>(https?://[^\s<]+)", item)
-                  if m_title and m_link:
-                      lines.append(f"- [{m_title.group(1).strip()}]({m_link.group(1).strip()})")
+              for item in root.iter("item"):
+                  title_el = item.find("title")
+                  link_el  = item.find("link")
+                  if title_el is None or link_el is None:
+                      continue
+                  title = (title_el.text or "").strip()
+                  # <link> in RSS 2.0 may have its text as tail of previous sibling
+                  link = (link_el.text or "").strip()
+                  if not link:
+                      # Some feeds put URL as tail of <link/> (self-closing)
+                      link = (link_el.tail or "").strip()
+                  if title and link:
+                      lines.append(f"- [{title}]({link})")
+                  if len(lines) >= 12:
+                      break
               return "## 📰 Yahoo Finance 财经新闻\n\n" + "\n".join(lines) + "\n"
 
           sections.append(safe_section(sec_yf_news, "## 📰 Yahoo Finance 财经新闻"))
@@ -199,7 +216,7 @@ jobs:
                   d = p["data"]
                   if d.get("stickied"):
                       continue
-                  title = d.get("title", "")[:100]
+                  title = d.get("title", "")[:MAX_POST_TITLE_LENGTH]
                   score = d.get("score", 0)
                   url   = "https://www.reddit.com" + d.get("permalink", "")
                   lines.append(f"- [{title}]({url}) *(👍 {score:,})*")
@@ -219,7 +236,7 @@ jobs:
                   d = p["data"]
                   if d.get("stickied"):
                       continue
-                  title = d.get("title", "")[:100]
+                  title = d.get("title", "")[:MAX_POST_TITLE_LENGTH]
                   score = d.get("score", 0)
                   url   = "https://www.reddit.com" + d.get("permalink", "")
                   lines.append(f"- [{title}]({url}) *(👍 {score:,})*")
@@ -234,7 +251,7 @@ jobs:
               "\n---\n"
               "*🤖 由 GitHub Actions 自动生成 · "
               "数据来源：Yahoo Finance · Reddit*  \n"
-              f"*⏰ 下次推送：明日北京时间 21:00*"
+              "*⏰ 下次推送：北京时间明日 21:00（每日定时，可在 Actions 页手动触发）*"
           )
           body = "\n".join(sections) + footer
 
