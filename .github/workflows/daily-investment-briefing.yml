@@ -15,12 +15,16 @@ jobs:
   briefing:
     runs-on: ubuntu-latest
     steps:
+      - name: Install Python dependencies
+        run: pip install yfinance --quiet
+
       - name: Build and publish daily briefing as GitHub Issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           python3 - << 'EOF'
+          import yfinance as yf
           import urllib.request
           import urllib.error
           import xml.etree.ElementTree as ET
@@ -34,20 +38,19 @@ jobs:
           # ── constants ─────────────────────────────────────────────────────────
           MAX_POST_TITLE_LENGTH = 100
           MAX_COMPANY_NAME_LENGTH = 30
+          ATOM_NS = "http://www.w3.org/2005/Atom"
+          MISSING_QUOTE_SORT_KEY = -999
 
           # ── helpers ──────────────────────────────────────────────────────────
-          def fetch_json(url, timeout=15):
-              req = urllib.request.Request(
-                  url,
-                  headers={"User-Agent": "daily-briefing-bot/1.0 (github.com)"},
-              )
-              with urllib.request.urlopen(req, timeout=timeout) as r:
-                  return json.loads(r.read().decode())
-
           def fetch_text(url, timeout=15):
               req = urllib.request.Request(
                   url,
-                  headers={"User-Agent": "daily-briefing-bot/1.0 (github.com)"},
+                  headers={
+                      "User-Agent": (
+                          "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) "
+                          "Gecko/20100101 Firefox/115.0"
+                      )
+                  },
               )
               with urllib.request.urlopen(req, timeout=timeout) as r:
                   return r.read().decode("utf-8", errors="replace")
@@ -78,6 +81,15 @@ jobs:
               except urllib.error.HTTPError as e:
                   return json.loads(e.read().decode())
 
+          def yf_get_quote(sym):
+              """Return (price, change_pct) for a symbol via yfinance fast_info."""
+              fi = yf.Ticker(sym).fast_info
+              px   = fi.last_price
+              prev = fi.previous_close
+              if px is not None and prev and prev != 0:
+                  return px, (px - prev) / prev * 100
+              return px, None
+
           # ── date / locale ─────────────────────────────────────────────────────
           now_utc = datetime.datetime.utcnow()
           now_bjt = now_utc + datetime.timedelta(hours=8)
@@ -94,11 +106,7 @@ jobs:
 
           # ── Section 1: Major indices & futures ───────────────────────────────
           def sec_indices():
-              syms = "^GSPC,^DJI,^IXIC,^RUT,^VIX,ES=F,NQ=F"
-              data = fetch_json(
-                  "https://query1.finance.yahoo.com/v7/finance/quote"
-                  f"?symbols={urllib.request.quote(syms)}"
-              )
+              syms = ["^GSPC", "^DJI", "^IXIC", "^RUT", "^VIX", "ES=F", "NQ=F"]
               labels = {
                   "^GSPC": "S&P 500", "^DJI": "道琼斯工业",
                   "^IXIC": "纳斯达克", "^RUT": "罗素 2000",
@@ -106,49 +114,57 @@ jobs:
                   "ES=F":  "S&P 500 期货", "NQ=F": "纳指期货",
               }
               rows = []
-              for q in data["quoteResponse"]["result"]:
-                  sym  = q.get("symbol", "")
+              for sym in syms:
                   name = labels.get(sym, sym)
-                  px   = q.get("regularMarketPrice", q.get("postMarketPrice", "—"))
-                  chg  = q.get("regularMarketChangePercent")
-                  if chg is not None:
+                  try:
+                      px, chg = yf_get_quote(sym)
+                  except Exception:
+                      px, chg = None, None
+                  if px is not None and chg is not None:
                       icon = "🔴" if chg < 0 else "🟢"
                       rows.append(f"| {name} | `{px:.2f}` | {icon} `{chg:+.2f}%` |")
+                  elif px is not None:
+                      rows.append(f"| {name} | `{px:.2f}` | — |")
                   else:
-                      rows.append(f"| {name} | `{px}` | — |")
+                      rows.append(f"| {name} | — | — |")
               tbl = "| 指数 / 期货 | 最新价 | 涨跌幅 |\n|:---|---:|---:|\n" + "\n".join(rows)
               return f"## 📊 主要指数与期货\n\n{tbl}\n"
 
           sections.append(safe_section(sec_indices, "## 📊 主要指数与期货"))
 
-          # ── Section 2: Trending tickers ───────────────────────────────────────
+          # ── Section 2: Popular watchlist tickers ─────────────────────────────
           def sec_trending():
-              trend = fetch_json(
-                  "https://query1.finance.yahoo.com/v1/finance/trending/US?count=15"
-              )
-              tickers = trend["finance"]["result"][0]["quotes"][:15]
-              syms = ",".join(t["symbol"] for t in tickers)
-              quotes = fetch_json(
-                  "https://query1.finance.yahoo.com/v7/finance/quote"
-                  f"?symbols={urllib.request.quote(syms)}"
-              )
-              qmap = {q["symbol"]: q for q in quotes["quoteResponse"]["result"]}
+              # Curated watchlist of high-volume, widely-followed US equities
+              syms = [
+                  "NVDA", "AAPL", "MSFT", "AMZN", "TSLA",
+                  "META", "GOOGL", "AVGO", "JPM", "V",
+                  "AMD", "NFLX", "PLTR", "SPY", "QQQ",
+              ]
+              names = {
+                  "NVDA": "NVIDIA", "AAPL": "Apple", "MSFT": "Microsoft",
+                  "AMZN": "Amazon", "TSLA": "Tesla", "META": "Meta",
+                  "GOOGL": "Alphabet", "AVGO": "Broadcom", "JPM": "JPMorgan",
+                  "V": "Visa", "AMD": "AMD", "NFLX": "Netflix",
+                  "PLTR": "Palantir", "SPY": "SPDR S&P 500 ETF", "QQQ": "Invesco QQQ ETF",
+              }
               rows = []
-              for t in tickers:
-                  sym  = t["symbol"]
-                  q    = qmap.get(sym, {})
-                  name = (q.get("shortName") or q.get("longName") or "")[:MAX_COMPANY_NAME_LENGTH]
-                  px   = q.get("regularMarketPrice", "—")
-                  chg  = q.get("regularMarketChangePercent")
-                  if chg is not None:
+              for sym in syms:
+                  name = names.get(sym, sym)
+                  try:
+                      px, chg = yf_get_quote(sym)
+                  except Exception:
+                      px, chg = None, None
+                  if px is not None and chg is not None:
                       icon = "🔴" if chg < 0 else "🟢"
-                      rows.append(f"| **{sym}** | {name} | `{px}` | {icon} `{chg:+.2f}%` |")
+                      rows.append(f"| **{sym}** | {name} | `{px:.2f}` | {icon} `{chg:+.2f}%` |")
+                  elif px is not None:
+                      rows.append(f"| **{sym}** | {name} | `{px:.2f}` | — |")
                   else:
-                      rows.append(f"| **{sym}** | {name} | `{px}` | — |")
+                      rows.append(f"| **{sym}** | {name} | — | — |")
               tbl = "| 代码 | 名称 | 最新价 | 涨跌幅 |\n|:---|:---|---:|---:|\n" + "\n".join(rows)
-              return f"## 🔥 Yahoo Finance 热门股票 Top 15\n\n{tbl}\n"
+              return f"## 🔥 热门关注股票 Top 15\n\n{tbl}\n"
 
-          sections.append(safe_section(sec_trending, "## 🔥 Yahoo Finance 热门股票 Top 15"))
+          sections.append(safe_section(sec_trending, "## 🔥 热门关注股票 Top 15"))
 
           # ── Section 3: Sector ETF performance ────────────────────────────────
           def sec_sectors():
@@ -158,23 +174,21 @@ jobs:
                   "XLP": "必需消费", "XLI": "工业", "XLB": "材料",
                   "XLRE": "房地产", "XLU": "公用事业",
               }
-              syms = ",".join(sector_map.keys())
-              data = fetch_json(
-                  "https://query1.finance.yahoo.com/v7/finance/quote"
-                  f"?symbols={urllib.request.quote(syms)}"
-              )
-              results = sorted(
-                  data["quoteResponse"]["result"],
-                  key=lambda q: q.get("regularMarketChangePercent", 0),
-                  reverse=True,
-              )
+              results = []
+              for sym, name in sector_map.items():
+                  try:
+                      px, chg = yf_get_quote(sym)
+                  except Exception:
+                      px, chg = None, None
+                  results.append((sym, name, chg))
+              results.sort(key=lambda x: x[2] if x[2] is not None else MISSING_QUOTE_SORT_KEY, reverse=True)
               rows = []
-              for q in results:
-                  sym  = q["symbol"]
-                  name = sector_map.get(sym, sym)
-                  chg  = q.get("regularMarketChangePercent", 0)
-                  icon = "🔴" if chg < 0 else "🟢"
-                  rows.append(f"| {name} (`{sym}`) | {icon} `{chg:+.2f}%` |")
+              for sym, name, chg in results:
+                  if chg is not None:
+                      icon = "🔴" if chg < 0 else "🟢"
+                      rows.append(f"| {name} (`{sym}`) | {icon} `{chg:+.2f}%` |")
+                  else:
+                      rows.append(f"| {name} (`{sym}`) | — |")
               tbl = "| 板块 ETF | 涨跌幅 |\n|:---|---:|\n" + "\n".join(rows)
               return f"## 🏭 板块 ETF 表现（强→弱）\n\n{tbl}\n"
 
@@ -206,40 +220,47 @@ jobs:
 
           sections.append(safe_section(sec_yf_news, "## 📰 Yahoo Finance 财经新闻"))
 
-          # ── Section 5: r/wallstreetbets hot posts ────────────────────────────
+          # ── Section 5: r/wallstreetbets hot posts (RSS / Atom feed) ──────────
           def sec_wsb():
-              data = fetch_json(
-                  "https://www.reddit.com/r/wallstreetbets/hot.json?limit=15&raw_json=1"
-              )
+              xml_text = fetch_text("https://www.reddit.com/r/wallstreetbets/hot.rss?limit=25")
+              root = ET.fromstring(xml_text)
+              ns = {"atom": ATOM_NS}
               lines = []
-              for p in data["data"]["children"]:
-                  d = p["data"]
-                  if d.get("stickied"):
+              for entry in root.iter(f"{{{ATOM_NS}}}entry"):
+                  title_el = entry.find("atom:title", ns)
+                  # Prefer rel=alternate; Atom <link> is always self-closing with href
+                  link_el = entry.find("atom:link[@rel='alternate']", ns)
+                  if link_el is None:
+                      link_el = entry.find("atom:link", ns)
+                  if title_el is None or link_el is None:
                       continue
-                  title = d.get("title", "")[:MAX_POST_TITLE_LENGTH]
-                  score = d.get("score", 0)
-                  url   = "https://www.reddit.com" + d.get("permalink", "")
-                  lines.append(f"- [{title}]({url}) *(👍 {score:,})*")
+                  title = (title_el.text or "").strip()[:MAX_POST_TITLE_LENGTH]
+                  link  = link_el.get("href", "").strip()
+                  if title and link:
+                      lines.append(f"- [{title}]({link})")
                   if len(lines) >= 8:
                       break
               return "## 🎰 r/wallstreetbets 热帖\n\n" + "\n".join(lines) + "\n"
 
           sections.append(safe_section(sec_wsb, "## 🎰 r/wallstreetbets 热帖"))
 
-          # ── Section 6: r/investing hot posts ─────────────────────────────────
+          # ── Section 6: r/investing hot posts (RSS / Atom feed) ───────────────
           def sec_investing():
-              data = fetch_json(
-                  "https://www.reddit.com/r/investing/hot.json?limit=15&raw_json=1"
-              )
+              xml_text = fetch_text("https://www.reddit.com/r/investing/hot.rss?limit=25")
+              root = ET.fromstring(xml_text)
+              ns = {"atom": ATOM_NS}
               lines = []
-              for p in data["data"]["children"]:
-                  d = p["data"]
-                  if d.get("stickied"):
+              for entry in root.iter(f"{{{ATOM_NS}}}entry"):
+                  title_el = entry.find("atom:title", ns)
+                  link_el = entry.find("atom:link[@rel='alternate']", ns)
+                  if link_el is None:
+                      link_el = entry.find("atom:link", ns)
+                  if title_el is None or link_el is None:
                       continue
-                  title = d.get("title", "")[:MAX_POST_TITLE_LENGTH]
-                  score = d.get("score", 0)
-                  url   = "https://www.reddit.com" + d.get("permalink", "")
-                  lines.append(f"- [{title}]({url}) *(👍 {score:,})*")
+                  title = (title_el.text or "").strip()[:MAX_POST_TITLE_LENGTH]
+                  link  = link_el.get("href", "").strip()
+                  if title and link:
+                      lines.append(f"- [{title}]({link})")
                   if len(lines) >= 8:
                       break
               return "## 💬 r/investing 热帖\n\n" + "\n".join(lines) + "\n"
