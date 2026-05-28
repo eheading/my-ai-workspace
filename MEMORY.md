@@ -14,3 +14,8 @@
 - 長期記憶與每日／臨時記錄分開維護。
 - 長期記憶存放在 `MEMORY.md`。
 - 每日或臨時記錄存放在 `memory/daily/`.
+
+## 定時任務
+- `.github/workflows/daily-investment-briefing.yml`：每天北京時間 21:00（UTC 13:00）自動收集美股開市前投資熱點，以 GitHub Issue（標籤 `daily-briefing`）形式推送日報。
+- 資料來源：Yahoo Finance（指數、熱門股票、板塊 ETF、新聞 RSS）、Reddit r/wallstreetbets、Reddit r/investing。
+- 依賴 `GITHUB_TOKEN`（自動注入），無需額外 secrets。
