@@ -10,6 +10,10 @@ on:
       - '.github/workflows/deploy-site.yml'
   workflow_dispatch:
 
+env:
+  PAGES_ARTIFACT_NAME: github-pages-${{ github.run_attempt }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 permissions:
   contents: read
   pages: write
@@ -47,6 +51,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: site/dist
 
   deploy:
@@ -59,3 +64,5 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
