@@ -1,0 +1,23 @@
+name: webwright
+version: 0.1.0
+status: active
+source: https://github.com/microsoft/Webwright
+summary: >
+  Browser automation skill: solves web tasks code-as-action style by driving a
+  local Playwright (Firefox) browser through Python scripts, saving screenshots
+  and an action log, and visually self-verifying results.
+install:
+  strategy: git-clone
+  repo: https://github.com/microsoft/Webwright
+  commands:
+    - pip install -e .
+    - playwright install firefox
+  skip_if_present: true
+use:
+  when_to_use:
+    - Automate multi-step web tasks (search, filter, form-fill, data extraction)
+    - Generate reusable Playwright Python scripts with screenshot evidence
+    - Long-horizon browser tasks requiring self-verification
+  modes:
+    - run: one-shot script for literal task values
+    - craft: reusable parameterized CLI tool
